@@ -15,6 +15,7 @@ except ImportError:
     pass
 
 class FirewallManager:
+    @staticmethod
     def block_ip(ip_address):
         rule_name = f"HIPS_BLOCK_{ip_address}"
         command = f"netsh advfirewall firewall add rule name=\"{rule_name}\" dir=in action=block remoteip={ip_address}"
@@ -26,6 +27,7 @@ class FirewallManager:
             print(f"[ERROR] Failed to block {ip_address}")
             return False
 
+    @staticmethod
     def unblock_ip(ip_address):
         rule_name = f"HIPS_BLOCK_{ip_address}"
         command = f'netsh advfirewall firewall delete rule name="{rule_name}"'
@@ -94,12 +96,29 @@ class DetectionEngine(threading.Thread):
                 pass
 
     def analyze(self, pkt):
-        # Simplified analysis logic for brevity
         if IP in pkt:
             src = pkt[IP].src
             dst = pkt[IP].dst
+            
+            # Traffic Logging
             if src not in self.blocked_ips:
                 self.gui_callback("TRAFFIC", (src, src, dst, "IP", len(pkt)))
+
+            # DOS Detection Logic (Example)
+            self.packet_counts[src] = self.packet_counts.get(src, 0) + 1
+            
+            if self.packet_counts[src] > 100 and src not in self.blocked_ips:
+                with self.blocked_lock:
+                    if src not in self.blocked_ips:
+                        self.blocked_ips.add(src)
+                        self.blacklist.insert(src)
+                        FirewallManager.block_ip(src)
+                        
+                        # Push to Stack
+                        self.alert_stack.push(f"High Traffic from {src}")
+                        
+                        # Notify GUI
+                        self.gui_callback("ALERT", (src, "High Traffic/DOS", "High"))
 
     def unblock_ip(self, ip):
         with self.blocked_lock:
